@@ -19,8 +19,9 @@
   "homepage": "https://github.com/effluxation/fend-neighborhood-map#readme",
   "devDependencies": {
     "grunt": "latest",
-    "grunt-contrib-watch": "latest",
+    "grunt-babel": "^7.0.0",
     "grunt-contrib-jshint": "latest",
+    "grunt-contrib-watch": "latest",
     "jshint-stylish": "latest",
     "load-grunt-tasks": "latest"
   }

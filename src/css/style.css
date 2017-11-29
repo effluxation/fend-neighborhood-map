@@ -30,6 +30,7 @@ body {
 .title {
   font-size: 15px;
   margin-bottom: 4px;
+  /*display: none;*/
 }
 
 .yelp-img {

@@ -10,8 +10,6 @@ class MuseumMapViewModel {
   constructor () {
     const self = this;
     self.mapReady = ko.observable(false);
-    self.query = ko.observable('');
-
     // Observable Markers Array that will determine display of list and markers
     self.markersObservable = ko.observableArray([]);
     // Computed observable loads markers once map initialization complete
@@ -22,12 +20,13 @@ class MuseumMapViewModel {
         return true;
       }
     }, self);
-
+    self.query = ko.observable('');
     self.clickMuseumList = function (clickedMarker) {
-      MuseumMapViewModel.popInfoWindow(clickedMarker);
+      self.popInfoWindow(clickedMarker);
       MuseumMapViewModel.toggleBounceMarker(clickedMarker);
     };
 
+    // Modifies museum display based on query in filter
     self.filterMarkerList = function (searchInput) {
       // Search query is a non-empty string
       if (searchInput) {
@@ -62,6 +61,67 @@ class MuseumMapViewModel {
 
     // Observable Subscriptions
     self.query.subscribe(self.filterMarkerList);
+
+    // InfoWindow
+    self.infoWindowTemplate = function () {
+      // Spinner HTML below taken from http://tobiasahlin.com/spinkit/
+      let spinner = '<div class="sk-circle" data-bind="visible: spinner">';
+      for (let circleNum = 1; circleNum <= 12; circleNum++) {
+        spinner += `<div class="sk-circle${circleNum} sk-child"></div>`;
+      }
+      spinner += '</div>';
+      return (
+        `<div class="title"><strong data-bind="text: title"></strong></div>
+        ${spinner}
+        <img class="yelp-img" data-bind="visible: fetched, attr: {src: imgUrl, alt: title}">
+        <div class="yelp-container" data-bind="visible: fetched">
+          <img class="yelp-rating" data-bind="attr: {src: ratingImg, srcset: ratingSrcset}">
+          <a target="_blank" data-bind="attr: {href: yelpUrl}">
+            <img class="yelp-logo" src="img/yelp_trademark_rgb_outline.png"\
+srcset="img/yelp_trademark_rgb_outline_2x.png 2x" alt="Yelp Logo">
+          </a>
+        </div>`
+      );
+    };
+
+    self.infoWindowProps = {
+      title: ko.observable(''),
+      spinner: ko.observable(true),
+      fetched: ko.observable(false),
+      imgUrl: ko.observable(''),
+      ratingImg: ko.observable(''),
+      ratingSrcset: ko.observable(''),
+      yelpUrl: ko.observable(''),
+      reviewCount: ko.observable(0),
+      address: ko.observable('')
+
+    };
+
+    self.infoWindowParams = [
+      'title: infoWindowProps.title',
+      'spinner: infoWindowProps.spinner',
+      'imgUrl: infoWindowProps.imgUrl',
+      'fetched: infoWindowProps.fetched',
+      'ratingImg: infoWindowProps.ratingImg',
+      'ratingSrcset: infoWindowProps.ratingSrcset',
+      'yelpUrl: infoWindowProps.yelpUrl',
+      'reviewCount: infoWindowProps.reviewCount',
+      'address: infoWindowProps.address'
+    ];
+
+    // InfoWindow Component Registrations
+    ko.components.register('info-window', {
+      viewModel: function (params) {
+        this.title = params.title;
+        this.spinner = params.spinner;
+        this.imgUrl = params.imgUrl;
+        this.fetched = params.fetched;
+        this.ratingImg = params.ratingImg;
+        this.ratingSrcset = params.ratingSrcset;
+        this.yelpUrl = params.yelpUrl;
+      },
+      template: self.infoWindowTemplate()
+    });
   }
 
   // ViewModel Methods
@@ -73,19 +133,7 @@ class MuseumMapViewModel {
     });
   }
 
-  static toggleBounceMarker (marker) {
-    if (marker.getAnimation()) {
-      // If click again during animation marker, will stop
-      marker.setAnimation(null);
-    } else {
-      // Disable bounce on all markers and set temporary bounce on selected marker
-      markers.forEach(otherMarker => { otherMarker.setAnimation(null); });
-      marker.setAnimation(google.maps.Animation.BOUNCE);
-      setTimeout(() => marker.setAnimation(null), 1500);
-    }
-  }
-
-  static popInfoWindow (marker) {
+  popInfoWindow (marker) {
     // First check if InfoWindow not already onen on clicked marker
     if (mainInfoWindow.marker !== marker) {
       mainInfoWindow.marker = marker;
@@ -94,55 +142,56 @@ class MuseumMapViewModel {
       museumMap.panTo(marker.position);
       museumMap.panBy(0, -200);
 
-      // Begin construction of InfoWindow content
-      let markerContent = `<div class="title"><strong>${marker.title}</strong></div>`;
-
-      // Spinner HTML below taken from http://tobiasahlin.com/spinkit/
-      markerContent += '<div class="sk-circle">';
-      for (let circleNum = 1; circleNum <= 12; circleNum++) {
-        markerContent += `<div class="sk-circle${circleNum} sk-child"></div>`;
-      }
-      markerContent += '</div>';
-      // END spinner HTML injection code
+      // Set observable info for current marker in infoWindow
+      this.infoWindowProps.title(marker.title);
+      this.infoWindowProps.fetched(false);
+      this.infoWindowProps.spinner(true);
 
       // Place title & spinner into InfoWindow & open it
-      mainInfoWindow.setContent(markerContent);
+      mainInfoWindow.setContent(`<info-window id="infoDisplay" params="${this.infoWindowParams.join(', ')}"></info-window>`);
       mainInfoWindow.open(museumMap, marker);
+      if (document.getElementById('infoDisplay')) {
+        ko.applyBindings(this, document.getElementById('infoDisplay'));
+      }
 
       // Begin fetching data from Yelp
       getYelp(marker).then(yelpInfo => {
-        // Only enter here if no connection issues
+        // Only enter here 'if' segment if no connection issues
         if (yelpInfo) {
-          // Yelp result exists. Remove spinner by reassigning markerContent
-          markerContent = `<div class="title"><strong>${marker.title}</strong></div>`;
-          markerContent += `<img class="yelp-img" src=${yelpInfo.image_url} alt=${marker.title}>`;
-          markerContent += `<div class="yelp-container">${getRatingImg(yelpInfo.rating)}`;
-          markerContent += `<a target="_blank" href="${yelpInfo.url}"><img class="yelp-logo" \
-src="img/yelp_trademark_rgb_outline.png" srcset="img/yelp_trademark_rgb_outline_2x.png 2x" \
-alt="Yelp Logo"></a>`;
-          markerContent += `<a class="yelp-reviews" href="${yelpInfo.url}" target="_blank">Based \
-on <strong>${yelpInfo.review_count}</strong> review${yelpInfo.review_count > 1 ? 's' : ''}</a>`;
-          markerContent += `<p><address>${getYelpAddressHtml(yelpInfo.location.display_address)}\
-</address></p>`;
-          markerContent += `<p class="yelp-info">Currently \
-<strong>${yelpInfo.is_closed ? 'CLOSED' : 'OPEN'}</strong><br>`;
-          markerContent += `Phone: ${yelpInfo.display_phone}</p></div>`;
-          mainInfoWindow.setContent(markerContent);
+          // Yelp result exists. Remove spinner & fill returned info
+          this.infoWindowProps.imgUrl(yelpInfo.image_url);
+          this.infoWindowProps.spinner(false);
+          this.infoWindowProps.fetched(true);
+          this.infoWindowProps.ratingImg(getRating(yelpInfo.rating).src);
+          this.infoWindowProps.ratingSrcset(getRating(yelpInfo.rating).srcset);
+          this.infoWindowProps.yelpUrl(yelpInfo.url);
+          this.infoWindowProps.reviewCount(yelpInfo.review_count);
+//
+//
+//           infoWindowContent += ;
+//           infoWindowContent += `<p><address>${getYelpAddressHtml(yelpInfo.location.display_address)}\
+// </address></p>`;
+//           infoWindowContent += `<p class="yelp-info">Currently \
+// <strong>${yelpInfo.is_closed ? 'CLOSED' : 'OPEN'}</strong><br>`;
+//           infoWindowContent += `Phone: ${yelpInfo.display_phone}</p></div>`;
+//           mainInfoWindow.setContent(infoWindowContent);
+
+
         } else {
         // Result undefined, search term not in Yelp database
-          markerContent = `<div class="title"><strong>${marker.title}</strong></div>`;
-          markerContent += `<p>This museum's information is not found in Yelp's business \
+          infoWindowContent = `<div class="title"><strong>${marker.title}</strong></div>`;
+          infoWindowContent += `<p>This museum's information is not found in Yelp's business \
 directory. Try a different museum location.</p>`;
-          mainInfoWindow.setContent(markerContent);
+          mainInfoWindow.setContent(infoWindowContent);
         }
       })
       // In case of connection error to cors-anywhere.herokuapp.com or
       // api.yelp.com
       .catch((err) => {
-        markerContent = `<div class="title"><strong>${marker.title}</strong></div>`;
-        markerContent += `<p>Unable to retrieve this museum's Yelp data due to a \
+        infoWindowContent = `<div class="title"><strong>${marker.title}</strong></div>`;
+        infoWindowContent += `<p>Unable to retrieve this museum's Yelp data due to a \
 connection error. Please try again later.</p>`;
-        mainInfoWindow.setContent(markerContent);
+        mainInfoWindow.setContent(infoWindowContent);
         console.log(err);
       });
     }
@@ -157,11 +206,12 @@ connection error. Please try again later.</p>`;
     }
 
     // Helper method for selection and formatting of correct Yelp star rating img
-    function getRatingImg (rating) {
+    function getRating (rating) {
       const ratingWhole = Math.floor(rating);
       const ratingHalf = (rating - ratingWhole === 0.5 ? '_half' : '');
-      return `<img class="yelp-rating" src="img/yelp_stars_reg/regular_${ratingWhole}${ratingHalf}\
-.png" srcset="img/yelp_stars_reg/regular_${ratingWhole}${ratingHalf}@2x.png 2x">`;
+      return {src: `img/yelp_stars_reg/regular_${ratingWhole}${ratingHalf}.png`,
+        srcset: `img/yelp_stars_reg/regular_${ratingWhole}${ratingHalf}@2x.png 2x`
+      };
     }
 
     // Helper method for formatting search string from title
@@ -211,6 +261,18 @@ connection error. Please try again later.`);
     mainInfoWindow.marker = null;
     mainInfoWindow.close();
   }
+
+  static toggleBounceMarker (marker) {
+    if (marker.getAnimation()) {
+      // If click again during animation marker, will stop
+      marker.setAnimation(null);
+    } else {
+      // Disable bounce on all markers and set temporary bounce on selected marker
+      markers.forEach(otherMarker => { otherMarker.setAnimation(null); });
+      marker.setAnimation(google.maps.Animation.BOUNCE);
+      setTimeout(() => marker.setAnimation(null), 1500);
+    }
+  }
 }
 
 // KOjs ViewModel initialization
@@ -253,7 +315,7 @@ function initMap () {
       map: museumMap
     });
     newMarker.addListener('click', function () {
-      MuseumMapViewModel.popInfoWindow(this);
+      tokyoMuseumViewModel.popInfoWindow(this);
       MuseumMapViewModel.toggleBounceMarker(this);
     });
     markers.push(newMarker);
@@ -261,14 +323,14 @@ function initMap () {
   }
 
   // Adjust map bounds to fit all markers
-  museumMap.fitBounds(mapBounds, -50); // TODO
-  museumMap.panBy(0, -100); // TODO
+  museumMap.fitBounds(mapBounds, -50);
+  museumMap.panBy(0, -100);
 
   // Notify MapViewModel that google map initialization is complete
   tokyoMuseumViewModel.mapReady(true);
 }
 
 // Google map initial loading error callback
-errorLoadMap = function () {
+function errorLoadMap () {
   alert('Unable to load Google Map at this time. Check your connection or try again later');
 }
